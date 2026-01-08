@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hulk 2003 - Local Folder Edition</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Arial Black', sans-serif; }
+        #menu {
+            position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100;
+        }
+        #logo { max-width: 350px; margin-bottom: 20px; filter: drop-shadow(0 0 10px #228B22); }
+        .btn {
+            background: #228B22; color: white; border: 2px solid #32CD32; padding: 15px 50px;
+            margin: 10px; font-size: 20px; cursor: pointer; border-radius: 50px; width: 300px;
+            transition: 0.3s;
+        }
+        .btn:hover { background: #32CD32; transform: scale(1.05); }
+        #loading { color: #32CD32; margin-top: 15px; font-family: monospace; }
+    </style>
+</head>
+<body>
+
+    <div id="menu">
+        <img src="logo.png" id="logo" alt="Hulk 2003 Logo">
+        <button class="btn" onclick="startGame()">JOGAR</button>
+        <div id="loading">Certifique-se de que os arquivos estão na pasta!</div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.136.0/build/three.module.js",
+                "three/examples/jsm/loaders/FBXLoader": "https://unpkg.com/three@0.136.0/examples/jsm/loaders/FBXLoader.js",
+                "three/examples/jsm/loaders/ColladaLoader": "https://unpkg.com/three@0.136.0/examples/jsm/loaders/ColladaLoader.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader';
+        import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader';
+
+        let scene, camera, renderer, clock, mixer, hulk, city, redHulk;
+        let actions = {}, activeAction;
+        let keys = { w: false, a: false, s: false, d: false, shift: false, e: false };
+
+        const themeMusic = new Audio('theme.mp3');
+        const introVoice = new Audio('fala_hulk.mp3');
+
+        window.startGame = function() {
+            document.getElementById('loading').innerText = "ESMAGANDO ARQUIVOS LOCAIS...";
+            themeMusic.loop = true;
+            themeMusic.play().catch(e => console.log("Áudio aguardando clique"));
+            init();
+        };
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x050505);
+            clock = new THREE.Clock();
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 30000);
+            camera.position.set(0, 600, 1200);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // Luzes para garantir visibilidade
+            scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(200, 500, 200);
+            scene.add(light);
+
+            const manager = new THREE.LoadingManager(() => {
+                document.getElementById('menu').style.display = 'none';
+                introVoice.play().catch(e => {});
+            });
+
+            const fbxLoader = new FBXLoader(manager);
+            const colladaLoader = new ColladaLoader(manager);
+            const texLoader = new THREE.TextureLoader(manager);
+
+            // 1. Carregar Cidade (model.dae)
+            colladaLoader.load('./model.dae', (collada) => {
+                city = collada.scene;
+                city.scale.set(20, 20, 20); // Escala maior para a cidade
+                scene.add(city);
+            });
+
+            // 2. Carregar Hulk e Texturas
+            const hulkTexture = texLoader.load('./hulk_texture.png');
+            fbxLoader.load('./Idle.fbx', (object) => {
+                hulk = object;
+                hulk.scale.set(1.5, 1.5, 1.5); // Hulk maior e imponente
+                
+                hulk.traverse(c => {
+                    if(c.isMesh) {
+                        c.material.map = hulkTexture;
+                        c.material.needsUpdate = true;
+                    }
+                });
+
+                mixer = new THREE.AnimationMixer(hulk);
+                
+                // Mapeamento de animações
+                const animations = {
+                    idle: './Idle.fbx',
+                    walk: './Walking.fbx',
+                    run: './Fast Run.fbx',
+                    punch: './Punching .fbx',
+                    jump: './Jumping.fbx'
+                };
+
+                Object.entries(animations).forEach(([name, path]) => {
+                    fbxLoader.load(path, (anim) => {
+                        const action = mixer.clipAction(anim.animations[0]);
+                        actions[name] = action;
+                        if(name === 'idle') {
+                            action.play();
+                            activeAction = action;
+                        }
+                    });
+                });
+
+                scene.add(hulk);
+
+                // 3. Criar Red Hulk (Clone com textura vermelha)
+                const redTex = texLoader.load('./red_hulk_texture.png');
+                fbxLoader.load('./Idle.fbx', (rh) => {
+                    redHulk = rh;
+                    redHulk.scale.set(1.5, 1.5, 1.5);
+                    redHulk.position.set(800, 0, -800);
+                    redHulk.rotation.y = Math.PI;
+                    redHulk.traverse(c => { if(c.isMesh) c.material.map = redTex; });
+                    scene.add(redHulk);
+                });
+            });
+
+            // Eventos de Teclado
+            window.addEventListener('keydown', (e) => handleInput(e.key.toLowerCase(), true));
+            window.addEventListener('keyup', (e) => handleInput(e.key.toLowerCase(), false));
+
+            animate();
+        }
+
+        function handleInput(key, state) {
+            if(keys.hasOwnProperty(key)) keys[key] = state;
+            if(key === 'shift') keys.shift = state;
+            if(key === 'e') keys.e = state;
+        }
+
+        function switchAction(name) {
+            if (actions[name] && activeAction !== actions[name]) {
+                activeAction.fadeOut(0.2);
+                activeAction = actions[name];
+                activeAction.reset().fadeIn(0.2).play();
+            }
+        }
+
+        function move() {
+            if (!hulk) return;
+            let isMoving = false;
+            const currentSpeed = keys.shift ? 15 : 6;
+
+            if (keys.w) { hulk.translateZ(currentSpeed); isMoving = true; }
+            if (keys.s) { hulk.translateZ(-currentSpeed); isMoving = true; }
+            if (keys.a) { hulk.rotation.y += 0.05; }
+            if (keys.d) { hulk.rotation.y -= 0.05; }
+
+            if (keys.e) {
+                switchAction('punch');
+            } else if (isMoving) {
+                switchAction(keys.shift ? 'run' : 'walk');
+            } else {
+                switchAction('idle');
+            }
+
+            // Câmera segue o Hulk
+            const cameraOffset = new THREE.Vector3(0, 500, -1000).applyQuaternion(hulk.quaternion);
+            camera.position.lerp(hulk.position.clone().add(cameraOffset), 0.1);
+            camera.lookAt(hulk.position.x, hulk.position.y + 250, hulk.position.z);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            if (mixer) mixer.update(delta);
+            move();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
