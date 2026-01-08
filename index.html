@@ -3,146 +3,150 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hulk: The Game - Test Edition</title>
+    <title>Hulk: 2003 Web Game</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Arial', sans-serif; background: #000; }
-        canvas { display: block; }
-
-        /* Menu de Dificuldade */
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         #menu {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); display: flex; flex-direction: column;
-            align-items: center; justify-content: center; z-index: 10;
+            position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.9);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100;
         }
-        #logo { width: 300px; margin-bottom: 20px; }
+        #logo { max-width: 400px; margin-bottom: 20px; }
         .btn {
-            background: #4CAF50; color: white; border: none; padding: 15px 40px;
-            margin: 10px; font-size: 20px; cursor: pointer; border-radius: 5px;
-            transition: 0.3s; width: 250px;
+            background: #228B22; color: white; border: none; padding: 15px 50px;
+            margin: 10px; font-size: 1.2rem; cursor: pointer; border-radius: 8px; width: 300px;
         }
-        .btn:hover { background: #45a049; transform: scale(1.05); }
-        
-        #game-ui {
-            position: absolute; top: 10px; left: 10px; color: white; 
-            display: none; pointer-events: none;
-        }
+        .btn:hover { background: #32CD32; }
+        #loading { color: white; position: absolute; bottom: 20px; display: none; }
     </style>
 </head>
 <body>
 
     <div id="menu">
-        <img src="logo.png" id="logo" alt="Hulk Logo">
-        <button class="btn" onclick="startGame('easy')">Fácil (Ross calmo)</button>
-        <button class="btn" onclick="startGame('normal')">Normal (Hulk Vermelho)</button>
-        <button class="btn" onclick="startGame('hard')">Difícil (Ross Furioso)</button>
+        <img src="logo.png" id="logo">
+        <button class="btn" onclick="startGame('easy')">FÁCIL</button>
+        <button class="btn" onclick="startGame('normal')">NORMAL</button>
+        <button class="btn" onclick="startGame('hard')">DIFÍCIL</button>
+        <div id="loading">Carregando Cidade e Personagens...</div>
     </div>
 
-    <div id="game-ui">
-        <h2>Hulk vs Red Hulk</h2>
-        <p>Use WASD para mover | Barra de Espaço para Pular | E para Soco</p>
-    </div>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.136.0/build/three.module.js",
+                "three/examples/jsm/loaders/FBXLoader": "https://unpkg.com/three@0.136.0/examples/jsm/loaders/FBXLoader.js",
+                "three/examples/jsm/loaders/ColladaLoader": "https://unpkg.com/three@0.136.0/examples/jsm/loaders/ColladaLoader.js"
+            }
+        }
+    </script>
 
     <script type="module">
-        import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
-        import { FBXLoader } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/loaders/FBXLoader.js';
-        import { ColladaLoader } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/loaders/ColladaLoader.js';
+        import * as THREE from 'three';
+        import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader';
+        import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader';
 
-        let scene, camera, renderer, clock, mixer, city, hulk, redHulk;
-        let animations = {};
-        const baseUrl = "https://raw.githubusercontent.com/studiododark-create/hulk/main/modelos%20hulk%20the%20game/";
+        let scene, camera, renderer, clock, mixer, hulk, redHulk, city;
+        let actions = {};
+        let activeAction;
 
-        // Áudios
         const themeMusic = new Audio('theme.mp3');
-        const roarSound = new Audio(baseUrl + 'roar.mp3'); // Se você tiver um roar.mp3 no github
+        const introVoice = new Audio('fala_hulk.mp3'); // Certifique-se de ter este arquivo
 
-        window.startGame = function(difficulty) {
-            document.getElementById('menu').style.display = 'none';
-            document.getElementById('game-ui').style.display = 'block';
+        window.startGame = function(diff) {
+            document.getElementById('loading').style.display = 'block';
             themeMusic.loop = true;
+            themeMusic.volume = 0.5;
             themeMusic.play();
+            
             init();
-            animate();
         }
 
         function init() {
             scene = new THREE.Scene();
             clock = new THREE.Clock();
-            
-            // Câmera
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 5000);
-            camera.position.set(0, 5, 15);
+            scene.background = new THREE.Color(0x87ceeb); // Céu azul caso a cidade demore
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+            camera.position.set(0, 10, 20);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
 
-            // Luzes
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-            scene.add(ambientLight);
-            const sunLight = new THREE.DirectionalLight(0xffffff, 1);
-            sunLight.position.set(50, 100, 50);
-            scene.add(sunLight);
+            const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+            scene.add(light);
 
-            // 1. Carregar a Cidade (.dae)
-            const colladaLoader = new ColladaLoader();
-            colladaLoader.load(baseUrl + 'model.dae', (collada) => {
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(5, 10, 5);
+            scene.add(dirLight);
+
+            const manager = new THREE.LoadingManager();
+            manager.onLoad = () => {
+                document.getElementById('menu').style.display = 'none';
+                introVoice.play(); // Hulk fala ao começar
+                console.log("Tudo carregado!");
+            };
+
+            // 1. Carregar Cidade
+            const colladaLoader = new ColladaLoader(manager);
+            colladaLoader.load('./model.dae', (collada) => {
                 city = collada.scene;
-                city.scale.set(1, 1, 1);
                 scene.add(city);
             });
 
-            // 2. Carregar Hulk e Animações (.fbx)
-            const fbxLoader = new FBXLoader();
-            
-            // Carregamos o modelo base com a textura original
-            fbxLoader.load(baseUrl + 'Idle.fbx', (object) => {
-                hulk = object;
-                hulk.scale.set(0.01, 0.01, 0.01);
-                hulk.position.set(0, 0, 0);
+            // 2. Carregar Hulk e Animações
+            const fbxLoader = new FBXLoader(manager);
+            const textureLoader = new THREE.TextureLoader();
+            const hulkTex = textureLoader.load('./hulk_texture.png');
 
-                // Aplicar Textura
-                const textureLoader = new THREE.TextureLoader();
-                const hulkTexture = textureLoader.load(baseUrl + 'hulk_texture.png');
+            fbxLoader.load('./Idle.fbx', (object) => {
+                hulk = object;
+                hulk.scale.set(0.1, 0.1, 0.1); // Ajuste se ele ficar gigante ou sumir
+                
                 hulk.traverse(child => {
-                    if (child.isMesh) child.material.map = hulkTexture;
+                    if (child.isMesh) child.material.map = hulkTex;
                 });
 
                 mixer = new THREE.AnimationMixer(hulk);
                 
-                // Carregar as outras animações
-                const anims = ['Walking', 'Fast Run', 'Jumping', 'Punching ', 'Death', 'Pain Gesture'];
-                anims.forEach(name => {
-                    fbxLoader.load(baseUrl + name + '.fbx', (anim) => {
-                        animations[name] = mixer.clipAction(anim.animations[0]);
-                        if(name === 'Idle') animations[name].play();
+                // Função para carregar cada animação
+                const loadAnim = (name, file) => {
+                    fbxLoader.load(`./${file}`, (anim) => {
+                        const action = mixer.clipAction(anim.animations[0]);
+                        actions[name] = action;
+                        if(name === 'idle') {
+                            action.play();
+                            activeAction = action;
+                        }
                     });
-                });
+                };
+
+                loadAnim('idle', 'Idle.fbx');
+                loadAnim('walk', 'Walking.fbx');
+                loadAnim('run', 'Fast Run.fbx');
+                loadAnim('punch', 'Punching .fbx');
+                loadAnim('jump', 'Jumping.fbx');
+                loadAnim('death', 'Death.fbx');
 
                 scene.add(hulk);
-
-                // Grito do Hulk ao iniciar
-                console.log("HULK SMASH!");
-                // Se quiser tocar o áudio dele falando:
-                // roarSound.play();
-
-                // 3. Criar Red Hulk (Clone do Hulk)
-                createRedHulk(textureLoader);
+                
+                // Criar Red Hulk
+                createRedHulk(fbxLoader, textureLoader);
             });
+
+            animate();
         }
 
-        function createRedHulk(loader) {
-            // Criamos o inimigo clonando o modelo do Hulk
-            fbxLoader.load(baseUrl + 'Idle.fbx', (object) => {
+        function createRedHulk(loader, texLoader) {
+            const redTex = texLoader.load('./red_hulk_texture.png');
+            loader.load('./Idle.fbx', (object) => {
                 redHulk = object;
-                redHulk.scale.set(0.01, 0.01, 0.01);
-                redHulk.position.set(10, 0, -10); // Spawna um pouco longe
-
-                const redTexture = loader.load(baseUrl + 'red_hulk_texture.png');
+                redHulk.scale.set(0.1, 0.1, 0.1);
+                redHulk.position.set(20, 0, -20);
+                redHulk.rotation.y = Math.PI; // Encarando o Hulk
+                
                 redHulk.traverse(child => {
-                    if (child.isMesh) child.material.map = redTexture;
+                    if (child.isMesh) child.material.map = redTex;
                 });
-
                 scene.add(redHulk);
             });
         }
@@ -151,14 +155,22 @@
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
             if (mixer) mixer.update(delta);
+            
+            // Seguir o Hulk com a câmera (básico)
+            if (hulk) {
+                camera.lookAt(hulk.position);
+            }
+            
             renderer.render(scene, camera);
         }
 
+        // Ajuste de tela
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
+
     </script>
 </body>
 </html>
